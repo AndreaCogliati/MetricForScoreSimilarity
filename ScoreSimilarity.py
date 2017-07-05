@@ -143,13 +143,16 @@ def scoreAlignment(aScore, bScore):
 
 
 
-def scoreSimilarity(aScore, bScore):
+def scoreSimilarity(estScore, gtScore):
     """Compare two musical scores.
 
     Parameters:
 
-    aScore/bScore: music21.stream.Score objects of piano scores. The scores must contain two 
+    estScore/gtScore: music21.stream.Score objects of piano scores. The scores must contain two
         music21.stream.PartStaff substreams (top and bottom staves)
+
+    estScore is the estimated transcription
+    gtScore is the ground truth
 
     Return value:
 
@@ -157,7 +160,38 @@ def scoreSimilarity(aScore, bScore):
 
         barlines, clefs, key signatures, time signatures, note, note spelling, 
         note duration, staff assignment, rest, rest duration
+
+    The differences for notes, rests and barlines are normalized with the number of symbols
+    in the ground truth
     """
+
+    def isInstanceOfClasses(obj, classes):
+        """Helper function to determine if an item is an instance of several classes"""
+        for cls in classes:
+            if isinstance(obj, cls):
+                return True
+        return False
+
+    def countSymbols(aScore):
+        """Count the number of symbols in a score
+
+        Parameter:
+            aScore a music21.Stream
+
+        Return value:
+            the number of music symbols (notes, rests, chords, barlines) in the score
+        """
+
+        # Classes to consider
+        CLASSES = [music21.bar.Barline, music21.note.Note, music21.note.Rest,
+                   music21.chord.Chord]
+
+        nSymbols = 0
+        for el in aScore.recurse():
+            if isInstanceOfClasses(el, CLASSES):
+                nSymbols += 1
+
+        return nSymbols
 
     def convertScoreToList(aScore):
         """Convert a piano score into a list of tuples
@@ -176,12 +210,6 @@ def scoreSimilarity(aScore, bScore):
         CLASSES = [music21.bar.Barline, music21.clef.Clef,
                    music21.key.Key, music21.meter.TimeSignature, music21.note.Note, music21.note.Rest,
                    music21.chord.Chord]
-
-        def isInstanceOfClasses(obj, classes):
-            for cls in classes:
-                if isinstance(obj, cls):
-                    return True
-            return False
 
         def convertStreamToList(aStream, staff):
             aList = []
@@ -514,12 +542,14 @@ def scoreSimilarity(aScore, bScore):
         return set
 
     # scoreSimilarity
-    path, _ = scoreAlignment(aScore, bScore)
+    path, _ = scoreAlignment(estScore, gtScore)
 
-    aList = convertScoreToList(aScore)
-    bList = convertScoreToList(bScore)
+    aList = convertScoreToList(estScore)
+    bList = convertScoreToList(gtScore)
 
-    errors = np.zeros((len(ScoreErrors.__members__)), int)
+    nSymbols = countSymbols(gtScore)
+
+    errors = np.zeros((len(ScoreErrors.__members__)), float)
 
     aStart, aEnd = 0.0, 0.0
     bStart, bEnd = 0.0, 0.0
@@ -534,6 +564,9 @@ def scoreSimilarity(aScore, bScore):
         else:
             aEnd = pair[0]
     errors += compareSets(getSet(aList, aStart, float('inf')), getSet(bList, bStart, float('inf')))
+    for aspect in [ScoreErrors.Note, ScoreErrors.NoteSpelling, ScoreErrors.NoteDuration, ScoreErrors.StemDirection,
+                   ScoreErrors.StaffAssignment, ScoreErrors.Grouping, ScoreErrors.Rest, ScoreErrors.RestDuration]:
+        errors[aspect] /= nSymbols
 
     return errors
     
